@@ -1,0 +1,929 @@
+---
+title: "How have the emotional tone and dominant lyrical themes in popular music evolved across decades?"
+author: "Aviva Kahlon"
+format: html
+toc: true
+toc-depth: 2
+---
+
+## Introduction
+
+Popular music is one of the most pervasive and enduring forms of cultural expression. Across decades, song lyrics have reflected personal emotions, social norms, and broader historical contexts, making them a valuable source for understanding how collective attitudes and modes of expression evolve over time. From the romantic ballads of the mid-twentieth century to the increasingly self-referential and socially aware lyrics of contemporary music, popular songs provide a rich textual record of changing emotional and thematic priorities.
+
+Existing research on music lyrics has often focused on isolated dimensions such as overall sentiment or genre-specific trends. While these approaches offer useful insights, they can overlook how multiple dimensions of lyrical content, including emotional tone, nostalgia, empowerment, and social commentary, interact and shift together across time. A more comprehensive examination therefore requires combining descriptive and computational text-analysis techniques to capture both surface-level emotional changes and deeper thematic structure.
+
+This project analyzes a large corpus of English-language popular music lyrics spanning multiple decades to examine long-term changes in lyrical content. Lyrics are analyzed at the song level and aggregated by decade to identify temporal patterns. The analysis integrates sentiment analysis to measure emotional tone, custom thematic dictionaries to capture recurring concepts such as nostalgia, empowerment, melancholy, and social commentary, and topic modeling to explore broader thematic structure beyond predefined categories.
+
+By focusing on how lyrical content varies across historical periods, this study aims to document and interpret observable trends in emotional expression and thematic emphasis in popular music. Rather than making causal claims about the drivers of these changes, the project adopts a descriptive and exploratory approach, using quantitative text-analysis methods to highlight patterns that reflect broader shifts in cultural expression over time.
+
+## Research Question
+
+Popular music lyrics offer a valuable lens through which changes in emotional expression and thematic focus can be observed over time. Because lyrics often reflect broader cultural and social contexts, analyzing them across historical periods can reveal systematic patterns in how emotions and themes are expressed. This project examines song lyrics from multiple decades to identify whether emotional tone and dominant lyrical themes vary over time.
+
+The central research question guiding this study is:
+
+**How have the emotional tone and dominant lyrical themes in popular music evolved across decades?**
+
+## Hypothesis
+
+Based on historical differences in musical style and cultural context, this study proposes the following hypothesis:
+
+**Songs from earlier decades are expected to exhibit higher levels of nostalgia and melancholy, while songs from more recent decades are expected to place greater emphasis on empowerment and social commentary.**
+
+## Literature Review
+
+Music lyrics are an important form of cultural text that reflect emotional expression, social values, and historical context. Researchers across sociology and computational social science have used song lyrics to examine cultural change, arguing that popular music provides insight into how collective emotions and thematic concerns evolve over time. The growing availability of large lyric datasets has enabled the use of quantitative text-analysis methods to study these patterns systematically.
+
+Early computational studies demonstrated that statistical and lexical models can be used to analyze and classify lyrical content. Fell et al. (2014) showed that n-gram and lexical feature–based approaches can capture meaningful stylistic and semantic differences in music lyrics, establishing a foundation for computational lyric analysis. Subsequent research has frequently applied sentiment analysis to lyrics, documenting shifts in emotional tone across time and genres. While these studies highlight changes in emotional expression, sentiment-only approaches may oversimplify lyrical content by focusing primarily on emotional valence.
+
+To capture broader lyrical meaning, researchers have increasingly examined thematic structure using topic modeling and dictionary-based methods. Du (2024) demonstrates that integrating sentiment analysis with thematic recognition provides a more nuanced understanding of lyrical patterns. Topic modeling studies further suggest that although certain themes, such as romance, remain central across time, the relative prominence of secondary themes varies across historical periods.
+
+Despite these advances, fewer studies jointly examine emotional tone and thematic emphasis in popular music across extended time horizons using multiple methods. This project builds on prior work by analyzing popular music lyrics across several decades using sentiment analysis, custom thematic dictionaries, and topic modeling to better understand long-term changes in lyrical content.
+
+## Datasets Used
+
+### Dataset 1: topSongsLyrics1950_2019.csv
+
+**Purpose:**\
+This dataset, taken from kaggle, directly supports my research question since it contains the *lyrics* of popular songs over multiple decades.
+
+**Structure (columns):** year, rank, artist, song, lyrics
+
+### Dataset 2: all_songs_data.csv
+
+**Purpose:** This data set, also from kaggle, has much more information about the songs and artists (more than what's needed) and thus has to be cleaned more thoroughly.
+
+**Structure (columns):** Album, Album URL, Artist, Featured Artists, Lyrics, Song Title, Media, Rank, Song URL, Writers, etc.
+
+```{r}
+#reading both datasets
+library(tidyverse)
+dataset1 <- read_csv("topSongsLyrics1950_2019.csv")
+dataset2 <- read_csv("all_songs_data.csv")
+glimpse(dataset1)
+glimpse(dataset2)
+```
+
+## Cleaning and Preprocessing
+
+To ensure consistency and reliability across analyses, both lyric datasets were subjected to the same cleaning and preprocessing pipeline prior to being merged. Only relevant variables were retained, including song title, artist name, year of release, and lyrics. Observations with missing or empty lyrics were removed, and duplicate song–artist pairs were dropped to prevent overrepresentation of repeated entries.
+
+The year variable was converted to numeric format and restricted to songs released between 1950 and 2019, allowing for meaningful temporal comparison while avoiding sparsely populated early years. Text fields were standardized by converting all characters to lowercase and trimming excess whitespace. This step ensured that stylistic differences in capitalization or formatting did not introduce artificial variation in the analysis.
+
+Because the analysis focuses on English-language popular music, language detection was performed using the `textcat` package, and only lyrics classified as English were retained. After this filtering step, column names across both datasets were standardized, and the datasets were merged into a single corpus. A final deduplication step was applied to the combined dataset to ensure that each song appeared only once.
+
+Additional text cleaning was performed on the merged lyrics to remove bracketed annotations and parenthetical content, such as stage directions or performance notes, which are common in lyric transcriptions but not substantively meaningful. Whitespace was normalized, and a copy of the original lyrics was preserved for reference.
+
+To facilitate temporal analysis, a decade variable was constructed from the year of release, grouping songs into decade-level categories. This aggregation allows for smoother comparison across historical periods while reducing year-to-year noise in lyrical trends.
+
+For downstream text analysis, lyrics were tokenized into individual words using the tidytext framework. Common stopwords and purely numeric tokens were removed, and very short tokens were excluded to retain lexically meaningful terms. In addition, an era variable was created to group songs into broader historical periods for select analyses. Finally, stemming was applied to reduce words to their root forms, allowing related lexical variants to be treated as a single term in subsequent modeling steps.
+
+### Cleaning the Data
+
+```{r}
+#Keep only relevant columns
+dataset1 <- dataset1 |>
+  select(year, artist, song, lyrics)
+head(dataset1)
+```
+
+```{r}
+#Remove missing or empty lyrics
+dataset1 <- dataset1 |>
+  filter(!is.na(lyrics) & lyrics != "")
+
+#Remove duplicates
+dataset1 <- dataset1 |>
+  distinct(song, artist, .keep_all = TRUE)
+
+#Clean year column
+dataset1 <- dataset1 |>
+  mutate(year = as.numeric(year)) |>
+  filter(year >= 1950 & year <= 2019)
+
+#Standardize text (lowercase and trim)
+dataset1 <- dataset1 |>
+  mutate(
+    artist = str_to_lower(str_trim(artist)),
+    song = str_to_lower(str_trim(song)),
+    lyrics = str_to_lower(str_trim(lyrics))
+  )
+
+head(dataset1)
+```
+
+```{r}
+#Detect language for each lyric
+library(textcat)
+dataset1 <- dataset1 |>
+  mutate(language = textcat(lyrics))
+
+#Keep only English lyrics
+dataset1 <- dataset1 |>
+  filter(language == "english")
+
+#Drop helper column (issue with textcat)
+dataset1 <- dataset1 |>
+  select(-language)
+```
+
+```{r}
+#Keep only relevant columns
+dataset2 <- dataset2 |>
+  select(Year, `Song Title`, Artist, Lyrics)
+
+head(dataset2)
+```
+
+```{r}
+#Remove missing or empty lyrics
+dataset2 <- dataset2 |>
+  filter(!is.na(Lyrics) & Lyrics != "")
+
+#Remove duplicates
+dataset2 <- dataset2 |>
+  distinct(`Song Title`, Artist, .keep_all = TRUE)
+
+#Convert Year to numeric and filter valid range
+dataset2 <- dataset2 |>
+  mutate(Year = as.numeric(Year)) |>
+  filter(Year >= 1950 & Year <= 2020)
+
+#Standardize text to lowercase and trim spaces
+dataset2 <- dataset2 |>
+  mutate(
+    Artist = str_to_lower(str_trim(Artist)),
+    `Song Title` = str_to_lower(str_trim(`Song Title`)),
+    Lyrics = str_to_lower(str_trim(Lyrics))
+  )
+
+#Remove non-alphabetic characters
+dataset2 <- dataset2 |>
+  mutate(Lyrics = str_replace_all(Lyrics, "[^a-z\\s]", ""))
+
+head(dataset2)
+```
+
+```{r}
+#Ensuring I only have English lyrics in dataset2
+library(textcat)
+dataset2 <- dataset2 |>
+  mutate(language = textcat(Lyrics)) |>
+  filter(language == "english") |>
+  select(-language)
+
+```
+
+```{r}
+#Standardizing column names for merging dataset1 and dataset2 later
+dataset2 <- dataset2 |>
+  rename(
+    year = Year,
+    song = `Song Title`,
+    artist = Artist,
+    lyrics = Lyrics
+  )
+
+head(dataset2)
+```
+
+```{r}
+#Combine the two datasets
+data <- bind_rows(dataset1, dataset2)
+
+#Remove any duplicate rows
+data <- data |>
+  distinct(song, artist, .keep_all = TRUE)
+
+glimpse(data)
+nrow(data)
+```
+
+```{r}
+head(data)
+```
+
+### Preprocessing the Data
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(stringr)
+library(SnowballC)   
+library(textstem)
+
+glimpse(data)
+summary(data$year)
+sum(is.na(data$lyrics))
+```
+
+```{r}
+#Remove remaining missing/empty lyrics and trim whitespace (doing twice just to make sure)
+data <- data |>
+  filter(!is.na(lyrics) & str_trim(lyrics) != "") |>
+  mutate(
+    artist = str_squish(artist),
+    song   = str_squish(song),
+    lyrics = str_squish(lyrics)
+  )
+nrow(data)
+```
+
+```{r}
+#Remove bracketing & annotations
+data <- data |>
+  mutate(lyrics = str_replace_all(lyrics, "\\[.*?\\]", " "),
+         lyrics = str_replace_all(lyrics, "\\(.*?\\)", " "),
+         lyrics = str_replace_all(lyrics, "\\s+", " ") %>% str_squish())
+```
+
+```{r}
+#Normalizing case
+data <- data |>
+  mutate(
+    lyrics_orig = lyrics,                #Preserving original text just in case
+    lyrics = str_to_lower(lyrics),
+    artist = str_to_lower(artist),
+    song = str_to_lower(song)
+  )
+```
+
+```{r}
+#Creating decade variable (it shall help going forward)
+data <- data |>
+  mutate(year = as.integer(year),
+         decade = case_when(
+           is.na(year) ~ NA_character_,
+           year >= 2020 ~ "2020s",
+           year >= 2010 ~ "2010s",
+           year >= 2000 ~ "2000s",
+           year >= 1990 ~ "1990s",
+           year >= 1980 ~ "1980s",
+           year >= 1970 ~ "1970s",
+           year >= 1960 ~ "1960s",
+           year >= 1950 ~ "1950s",
+           TRUE ~ "pre-1950"
+         )) |>
+  filter(!is.na(decade))
+```
+
+```{r}
+data |> count(decade) |> arrange(desc(n))
+```
+
+```{r}
+#Tokenization for sentiment analysis
+data("stop_words")  
+tokens <- data |>
+  select(song, artist, year, decade, lyrics) |>
+  unnest_tokens(word, lyrics)
+```
+
+```{r}
+tokens |> slice_sample(n=10)
+tokens |> count(word, sort=TRUE) |> slice_max(n, n=20)
+```
+
+```{r}
+#Removing stopwords and only numeric tokens (keeping only lexically important terms)
+tokens_nostop <- tokens |>
+  anti_join(stop_words, by = "word") |>
+  filter(!str_detect(word, "^[0-9]+$"), str_length(word) > 1
+ ) |>
+  mutate(
+    era = case_when(
+      year >= 1950 & year <= 1979 ~ "1950s–1970s",
+      year >= 1980 & year <= 1999 ~ "1980s–1990s",
+      year >= 2000               ~ "2000s–Present"
+    )
+  )
+```
+
+```{r}
+#Stemming
+tokens_nostop <- tokens_nostop |>
+  mutate(stem = wordStem(word))
+```
+
+## Thematic Analysis of Lyrics
+
+While sentiment analysis (touched upon later in the paper) provides a useful summary of overall emotional tone in music lyrics, it does not fully capture the specific ideas and narratives that songs express. Lyrics often convey themes such as memory, identity, agency, and social context that extend beyond simple positive or negative emotion. Examining thematic content therefore allows for a more detailed understanding of how lyrical meaning changes over time. This section focuses on identifying and tracking key thematic patterns in popular music lyrics across decades in order to better understand shifts in lyrical emphasis and cultural expression.
+
+### Construction of Thematic Dictionaries
+
+To systematically examine thematic content in song lyrics, this study employs a dictionary-based approach using custom thematic dictionaries. Dictionary methods allow for transparent and interpretable measurement of conceptually defined themes, making them well suited for analyzing large text corpora where direct qualitative coding is not feasible. Rather than relying on predefined sentiment lexicons alone, custom dictionaries were constructed to capture themes that are particularly relevant to popular music and cultural change.
+
+Four thematic categories were defined for analysis: **nostalgia, empowerment, melancholy, and social commentary.** These themes were selected based on prior literature on music and culture as well as their frequent appearance in lyrical narratives across historical periods. By focusing on these specific themes, the analysis is able to quantify how different dimensions of lyrical meaning are emphasized across time while maintaining clear interpretability of the results
+
+```{r}
+nostalgia_words <- c(
+  "remember","memories","memory","yesterday","back","again",
+  "old","old days","longing","recall","childhood","home",
+  "time","past","days","before","miss","once","gone","yearning"
+)
+
+melancholy_words <- c(
+  "cry","tears","lonely","alone","sad","broken","hurt","pain","blue",
+  "lost","empty","dark","heartache","sorrow","sorry","fall","cold",
+  "rain","shadow","goodbye","aching"
+)
+
+empowerment_words <- c(
+  "strong","power","fight","rise","free","win","rule","queen","king",
+  "shine","brave","confident","independent","proud","fearless",
+  "believe","can","will","unstoppable","survivor","fly"
+)
+
+social_words <- c(
+  "freedom","justice","rights","people","nation","society","change",
+  "world","war","peace","march","protest","unite","voice","equality",
+  "government","law","hope","revolution"
+)
+```
+
+```{r}
+theme_tokens <- tokens_nostop |>
+  mutate(
+    theme = case_when(
+      word %in% nostalgia_words ~ "nostalgia",
+      word %in% melancholy_words ~ "melancholy",
+      word %in% empowerment_words ~ "empowerment",
+      word %in% social_words ~ "social_commentary",
+      TRUE ~ NA_character_
+    )
+  )
+
+theme_counts_decade <- theme_tokens |>
+  filter(!is.na(theme)) |>
+  count(decade, theme)
+
+decade_totals <- tokens_nostop |> count(decade, name = "total_words")
+
+theme_rates <- theme_counts_decade |>
+  left_join(decade_totals, by = "decade") |>
+  mutate(rate = n / total_words)
+```
+
+```{r}
+theme_counts_song <- theme_tokens |>
+  filter(!is.na(theme)) |>
+  count(song, artist, year, decade, theme)
+
+head(theme_counts_song)
+```
+
+This table shows **how many words belonging to each theme appear in each song**.\
+This is the first quantitative signal of how strongly a song expresses a particular theme. For example, a song with many nostalgia-related words (“remember,” “yesterday,” “gone”) will have a high nostalgia count. A song filled with empowerment language (“rise,” “strong,” “power”) will show a high empowerment count.
+
+This step reveals that themes vary **song by song**, and later we will aggregate to compare across decades, which directly addresses my research question about historical change in lyrical themes.
+
+### Normalization and Temporal Aggregation
+
+```{r}
+song_word_totals <- tokens_nostop |>
+  count(song, name = "total_words")
+
+theme_song_norm <- theme_counts_song |>
+  left_join(song_word_totals, by = "song") |>
+  mutate(rate = n / total_words)
+
+head(theme_song_norm)
+```
+
+Songs vary substantially in length, which makes direct comparison of raw theme word counts misleading, as longer lyrics naturally contain more opportunities for any theme to appear. To address this issue, theme-related word counts were normalized at the song level by total word count, producing theme rates that are comparable across songs of different lengths. These normalized theme rates were then aggregated by decade to examine broader temporal patterns in lyrical emphasis. Using decade-level aggregation allows for meaningful historical comparison while reducing noise from year-to-year variation in the data.
+
+```{r}
+theme_decade <- theme_song_norm |>
+  group_by(decade, theme) |>
+  summarise(mean_rate = mean(rate, na.rm = TRUE))
+
+theme_decade
+```
+
+### Thematic Trends Across Decades
+
+Visualizing normalized thematic rates across decades provides an intuitive way to examine how the relative prominence of different lyrical themes changes over time. By presenting multiple themes within a single temporal framework, this visualization allows for direct comparison of long-term patterns that would be difficult to detect from isolated statistics or individual songs. The figure serves as a summary representation of thematic evolution in popular music, highlighting broad shifts in lyrical emphasis while maintaining comparability across historical periods.
+
+```{r}
+ggplot(theme_decade, aes(x = decade, y = mean_rate, color = theme, group = theme)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Evolution of Lyrical Themes Across Decades",
+    y = "Mean Theme Frequency (normalized)",
+    x = "Decade",
+    color = "Theme"
+  )
+```
+
+The thematic trend plot shows clear differences in how nostalgia, melancholy, empowerment, and social commentary appear across decades. Nostalgia-related terms are most concentrated in the 1950s and 1960s, while melancholy appears more prominently from the 1960s through the 1980s. Social commentary peaks in the 1960s and 1970s, reflecting the decades in which these terms appear with their highest normalized frequencies in the dataset. In contrast, empowerment shows its strongest presence in the 2000s and 2010s, where its thematic proportion reaches its highest levels. Overall, each theme displays a distinct temporal pattern, with mid-century music in this corpus more strongly associated with nostalgia, melancholy, and social commentary, and more recent decades showing greater emphasis on empowerment.
+
+## Emotional Tone Across Decades
+
+While thematic analysis captures *what* ideas and narratives are emphasized in song lyrics, it does not directly measure overall emotional tone. Sentiment analysis provides a complementary perspective by summarizing whether lyrics tend to express more positive or negative emotion over time. Examining sentiment alongside thematic trends allows for a broader understanding of how emotional expression in popular music evolves across decades. This section therefore analyzes changes in overall lyrical sentiment to contextualize the thematic patterns identified in the previous section.
+
+### Sentiment Measurement and Normalization
+
+Sentiment in song lyrics was measured using a lexicon-based approach that identifies and counts positive and negative words within each song. For each lyric, counts of positive and negative sentiment terms were computed and combined to produce a song-level sentiment score. Because songs vary widely in length, sentiment counts were normalized by total word count to ensure that sentiment scores are comparable across songs. These normalized sentiment scores were then aggregated by decade to examine changes in overall emotional tone across historical periods.
+
+```{r}
+library(tidytext)
+library(dplyr)
+library(ggplot2)
+
+# Using the Bing sentiment lexicon
+bing <- get_sentiments("bing")
+
+sentiment_song <- tokens_nostop |>
+  inner_join(bing, by = "word") |>
+  count(song, artist, year, decade, sentiment) |>
+  pivot_wider(
+    names_from = sentiment,
+    values_from = n,
+    values_fill = 0
+  )
+
+head(sentiment_song)
+```
+
+```{r}
+#Count total words per song
+song_word_totals <- tokens_nostop |>
+  count(song, name = "total_words")
+```
+
+```{r}
+#Compute normalized sentiment per song
+sentiment_song_norm <- sentiment_song |>
+  left_join(song_word_totals, by = "song") |>
+  mutate(sent_norm = (positive - negative) / total_words)
+head(sentiment_song_norm)
+```
+
+```{r}
+sentiment_decade_norm <- sentiment_song_norm |>
+  group_by(decade) |>
+  summarise(mean_sentiment = mean(sent_norm, na.rm = TRUE))
+
+head(sentiment_decade_norm)
+```
+
+### Sentiment Trends Across Decades
+
+Visualizing sentiment at the decade level provides a clear view of long-term changes in emotional tone while minimizing short-term fluctuations that may arise from individual songs or artists. Aggregating normalized sentiment scores by decade allows for meaningful comparison across historical periods and highlights broad shifts in how emotion is expressed in popular music lyrics. This visualization serves as a complementary perspective to the thematic analysis, offering insight into whether changes in thematic emphasis are accompanied by parallel changes in overall emotional valence.
+
+```{r}
+ggplot(sentiment_decade_norm, aes(x = decade, y = mean_sentiment, group = 1)) +
+  geom_line(size = 1.2, color = "steelblue") +
+  geom_point(size = 3, color = "darkblue") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Normalized Sentiment Across Decades",
+    y = "Mean Normalized Sentiment",
+    x = "Decade"
+  )
+```
+
+The normalized sentiment plot shows that earlier decades, particularly the 1950s through the 1970s, have the highest average sentiment values, indicating a greater proportion of positive relative to negative terms in those lyrics. Starting in the 1980s, the measure declines steadily, with the 1990s and 2000s showing noticeably lower sentiment levels. Although the 2010s show a small increase, the 2020s reach the lowest value in the series. Because the metric is normalized per word, these differences reflect changes in the **relative emotional tone** of lyrics across decades rather than differences in song length.
+
+## Lexical Change and Distinctive Language
+
+While thematic and sentiment analyses capture broader patterns in meaning and emotional tone, they do not fully reflect how language is used at the level of specific words and phrases. Lexical analysis focuses on patterns in vocabulary and phrasing, allowing for closer examination of how linguistic expression changes over time. By analyzing distinctive words and common word pairings, this section explores shifts in lyrical language that complement the higher-level thematic and emotional trends identified earlier. These analyses are exploratory in nature and are intended to provide additional context for understanding how popular music lyrics evolve across decades.
+
+### Comparison Word Clouds by Decade
+
+Word clouds were used as an exploratory visualization to highlight frequently occurring words within each historical period. By scaling word size according to frequency, these visualizations provide an intuitive overview of dominant vocabulary patterns across eras. While word clouds emphasize frequency rather than contextual meaning, they serve as a useful descriptive tool for identifying common lyrical terms and recurring language patterns. This visualization provides visual grounding for the more structured lexical analyses that follow, including bigram and TF-IDF analyses.
+
+```{r}
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+
+# Define eras explicitly
+era_data <- data |>
+  mutate(
+    era = case_when(
+      year >= 1950 & year <= 1979 ~ "1950s–1970s",
+      year >= 1980 & year <= 1999 ~ "1980s–1990s",
+      year >= 2000               ~ "2000s–Present"
+    )
+  ) |>
+  filter(!is.na(era))
+
+custom_stopwords <- c(
+  stop_words$word,
+  "yeah", "ooh", "woo", "oh", "la", "na",
+  "baby", "babies", "hey", "ah",
+  "doo", "da", "ha", "hoo", "youre", "dont", "aint", "chorus", "verse", "shes", "hes","she", "he", "ive", "till", "ill", "wanna", "mam", "wont", "love")
+make_wordcloud <- function(text_vector, title_text) {
+
+  corpus <- VCorpus(VectorSource(text_vector))
+  
+  corpus <- corpus |>
+    tm_map(content_transformer(tolower)) |>
+    tm_map(removeWords, custom_stopwords) |>
+    tm_map(removePunctuation) |>
+    tm_map(stripWhitespace)
+
+  tdm <- TermDocumentMatrix(corpus)
+  m <- as.matrix(tdm)
+  word_freq <- sort(rowSums(m), decreasing = TRUE)
+
+  colors <- brewer.pal(8, "Dark2")
+  
+  par(mar = c(0, 0, 3, 0)) 
+
+  wordcloud(
+    words = names(word_freq),
+    freq = word_freq,
+    max.words = 150,
+    random.order = FALSE,
+    colors = colors,
+    scale = c(3, 0.6)
+  )
+
+  title(title_text, line = 2)
+}
+
+```
+
+```{r}
+make_wordcloud(
+  era_data |> filter(era == "1950s–1970s") |> pull(lyrics),
+  "Word Cloud: 1950s–1970s"
+)
+
+```
+
+```{r}
+make_wordcloud(
+  era_data |> filter(era == "1980s–1990s") |> pull(lyrics),
+  "Word Cloud: 1980s–1990s"
+)
+
+```
+
+```{r}
+make_wordcloud(
+  era_data |> filter(era == "2000s–Present") |> pull(lyrics),
+  "Word Cloud: 2000s–Present"
+)
+
+```
+
+**1950s–1970s:** Lyrics feature formal, romance-centric vocabulary like *love, heart, thee, baby, night*. The 1950s even include archaic words (*thy, hath, thee*) from early ballads. The 1960s–1970s introduce more conversational expressions (*im, dont, ill*) and relationship context words (*baby, dad, mom*), reflecting the growth of soul, Motown, and early rock.
+
+**1980s–1990s:** A visible shift occurs; emotional but upbeat language emerges (*love, feel, tonight, baby, dance*). This decade introduces more energetic vocabulary tied to dance-pop and emerging rock anthems.Self-expression becomes dominant. Larger words like *im, dont, yeah, feel, wanna* show conversational tone and assertiveness. Genre diversification (hip-hop, R&B, grunge) introduces words like *wanna, yea, verse, chorus*.
+
+**2000s–Present:** Lyrics become highly individualistic and self-focused. *im, love, feel, life, money, girl, want*. Technology referencing words appear (*recorded, nyc, spotify*), showing cultural embedding of digital music and social media.
+
+Overall, the trend moves from **structured romance (1950s)** → **rebellion and emotional exploration (1970s–1990s)** → **self-expression and individuality (2000s–2020s)**.
+
+### Bigram Analysis
+
+The bigram analysis reveals common two-word phrases that recur across popular music lyrics, offering insight into how themes are linguistically constructed rather than merely referenced. Frequently occurring bigrams such as *fall love*, *broken heart*, *hold on*, and *live life* indicate that emotional themes are often expressed through fixed, familiar phrasing. Compared to single-word frequencies, these bigrams reflect more coherent emotional and narrative units, capturing patterns of longing, resilience, and personal experience. This analysis complements the word cloud results by highlighting not just dominant concepts, but the repeated linguistic structures through which those concepts are articulated.
+
+```{r}
+bigrams <- data |>
+  unnest_tokens(bigram, lyrics, token = "ngrams", n = 2)
+
+bigrams_separated <- bigrams |>
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+filler_bigrams <- c(
+  "baby baby",
+  "ooh ooh",
+  "hey hey",
+  "mme de",
+  "da da", "ah ah", "youre gonna", "du du"
+)
+
+bigrams_clean <- bigrams_separated |>
+  filter(!word1 %in% stop_words$word,
+         !word2 %in% stop_words$word,
+         !word1 %in% c("yeah", "la", "na", "oh", "woo", "ooh", "baby", "hey"),
+         !word2 %in% c("yeah", "la", "na", "oh", "woo", "ooh", "baby", "hey")) |>
+  unite(bigram, word1, word2, sep = " ") |>
+  filter(!bigram %in% filler_bigrams)
+
+bigrams_clean |>
+  count(bigram, sort = TRUE) |>
+  head(15)
+```
+
+### Lexical Distinctiveness Across Decades (TF–IDF)
+
+To identify vocabulary that is uniquely characteristic of each decade, this analysis applies term frequency–inverse document frequency (TF–IDF). Unlike raw word counts, TF–IDF downweights terms that appear frequently across all periods and highlights words that are disproportionately associated with a specific decade. This makes it well suited for examining how lyrical language differentiates across historical eras rather than reinforcing common themes shared throughout popular music.
+
+The resulting visualization emphasizes decade-specific lexical fingerprints, revealing shifts in cultural references, stylistic conventions, and modes of expression over time. By isolating words that are distinctive rather than merely frequent, TF–IDF provides a clearer view of how lyrical language evolves alongside broader social and musical changes. This analysis complements the earlier word cloud and bigram results by focusing explicitly on what distinguishes each era from the others.
+
+```{r}
+#TF-IDF by decade 
+tfidf_by_decade <- tokens_nostop |>
+  count(decade, word, sort = TRUE) |>
+  group_by(decade) |>
+  mutate(total = sum(n),
+         tf = n/total) |>
+  ungroup() |>
+  bind_tf_idf(term = word, document = decade, n = n)
+
+head(tfidf_by_decade)
+```
+
+#### **TF–IDF: Words Most Unique to Each Decade**
+
+```{r}
+library(tidytext)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+
+# cleaning for TF-IDF: letters only, length ≥ 4
+tfidf_prep <- tokens_nostop |>
+  filter(
+    str_detect(word, "^[A-Za-z]+$"),
+    nchar(word) >= 4
+  )
+
+# calculate tf-idf
+tfidf_decade <- tfidf_prep |>
+  count(decade, word, sort = TRUE) |>
+  filter(n >= 3) |>                                 
+  bind_tf_idf(word, decade, n)
+
+# keep only top unique word per decade
+tfidf_top1 <- tfidf_decade |>
+  group_by(decade) |>
+  slice_max(tf_idf, n = 1) |>
+  ungroup()
+
+ggplot(tfidf_top1, aes(x = decade, y = tf_idf, fill = decade)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = word), vjust = -0.5, size = 6) +   
+  theme_minimal(base_size = 16) +
+  labs(
+    title = "Most Unique Word in Lyrics by Decade (TF–IDF)",
+    subtitle = "The word that best represents each decade's lyrical identity",
+    x = "Decade",
+    y = "TF–IDF Score (uniqueness)"
+  )
+```
+
+Several notable patterns emerge from the TF–IDF analysis, highlighting how distinctive vocabulary reflects broader shifts in lyrical style and cultural context over time.
+
+In the **1950s**, unique terms such as *“sharrkan”* appear, reflecting a strong emphasis on storytelling and narrative-driven lyrics. Words from this period often reference specific characters, names, or culturally situated terms that do not recur in later decades. This pattern is consistent with early pop ballads and traditional song structures that favored linear narratives and detailed storytelling, sometimes incorporating international or folkloric influences.
+
+The **1960s and 1970s** continue this narrative tradition, as illustrated by distinctive terms such as *“malachy.”* The presence of proper names and character-driven language suggests an enduring influence of folk and singer-songwriter traditions, where lyrics frequently centered on personal stories, named figures, and reflective themes.
+
+In the **1980s**, the appearance of the term *“lubov,”* a transliteration of the Russian word for “love,” points to increasing global and cross-cultural influences in popular music. This decade reflects experimentation not only in sound but also in language, with artists incorporating multilingual references and broader cultural symbolism into their lyrics.
+
+The **1990s** show a shift toward more metaphorical and literary lyricism, exemplified by the term *“guermantes,”* a reference to Marcel Proust’s work. This suggests the growing influence of alternative and indie genres, where abstract imagery, literary allusions, and poetic expression became more prominent.
+
+In the **2000s**, distinctive vocabulary such as *“rollout”* reflects the rise of hip-hop and R&B, genres in which performance-oriented language, action verbs, and industry-specific slang play a central role. Lyrics during this period increasingly emphasize momentum, identity, and public presence.
+
+By the **2010s**, terms like *“spotify”* signal a clear technological and industry transformation. The direct mention of streaming platforms in lyrics illustrates how digital consumption and music distribution have become embedded within popular culture and artistic expression itself.
+
+Finally, in the **2020s**, distinctive words such as *“watermelon,”* likely influenced by mainstream pop culture references, point toward a lyrical focus on sensory imagery, lifestyle aesthetics, and viral cultural moments. This reflects contemporary songwriting’s emphasis on experiential and visual language.
+
+This evolution supports the broader hypothesis that lyrical themes have moved outward over time, increasingly reflecting social context, cultural trends, and contemporary modes of consumption.
+
+## Semantic Structure and Topic Modeling
+
+While thematic dictionaries and lexical analyses capture interpretable patterns in lyrical content, they rely on predefined categories and surface-level word usage. To examine whether broader semantic structure emerges organically from the data, this section applies unsupervised, model-based approaches to lyric analysis. Word embeddings and topic modeling allow for the identification of latent semantic relationships and recurring themes without imposing prior assumptions. These methods provide a complementary perspective on lyrical evolution and serve to validate whether patterns observed earlier are reflected in the underlying semantic structure of the corpus.
+
+### Word Embedding
+
+Word embeddings were used to examine semantic relationships between words based on their co-occurrence patterns in lyrics. By representing words in a continuous vector space, embeddings capture contextual similarity, allowing related concepts to appear closer together even when they are not identical terms. Inspection of embedding neighborhoods reveals that emotionally and thematically related words cluster together, reflecting coherent semantic structure within the lyric corpus. These patterns reinforce findings from earlier analyses by demonstrating that themes such as emotion, identity, and social context are embedded within the broader semantic organization of lyrical language.
+
+```{r}
+library(text2vec)
+library(dplyr)
+
+# collapse words back into song-level documents
+song_text <- tokens_nostop |>
+  group_by(song) |>
+  summarise(text = paste(word, collapse = " "))
+```
+
+```{r}
+it <- itoken(song_text$text, progressbar = FALSE)
+vocab <- create_vocabulary(it)
+
+vectorizer <- vocab_vectorizer(vocab)
+```
+
+```{r}
+tcm <- create_tcm(it, vectorizer, skip_grams_window = 5L)
+
+glove <- GlobalVectors$new(rank = 50, x_max = 10)
+word_vectors <- glove$fit_transform(tcm, n_iter = 20)
+
+word_vectors <- word_vectors + t(glove$components)
+```
+
+```{r}
+tokens_nostop <- tokens_nostop |>
+  filter(!word %in% c("chorus", "prechorus", "verse", "bridge", "outro"))
+
+closest_words <- function(target_word, n = 10) {
+
+  sims <- sim2(
+    x = word_vectors,
+    y = word_vectors[target_word, , drop = FALSE],
+    method = "cosine",
+    norm = "l2"
+  )
+
+  sims_df <- sims |>
+    as.data.frame() |>
+    tibble::rownames_to_column("word") |>
+    dplyr::rename(similarity = 2) |>         # rename second column to similarity
+    arrange(desc(similarity)) |>
+    slice(2:(n + 1))                          # skip the first row (the word itself)
+
+  return(sims_df)
+}
+
+```
+
+```{r}
+closest_words("love")
+```
+
+```{r}
+closest_words("money")
+closest_words("party")
+closest_words("life")
+```
+
+To move beyond frequency-based analyses and examine how meaning is constructed in song lyrics, word embeddings were applied using the GloVe model. Unlike word clouds or TF–IDF, which emphasize word frequency, word embeddings capture semantic similarity by modeling how words co-occur across lyrical contexts. After preprocessing the lyrics through tokenization, stopword removal, and the elimination of structural markers such as “chorus” and “verse,” 50-dimensional GloVe vectors were trained using the `text2vec` package in R. Semantic relationships were then examined using cosine similarity. For example, the word *“love”* appears most closely associated with terms such as *heart*, *feel*, *baby*, and *life*, forming a coherent emotional and relational cluster, whereas *“money”* is linked to terms such as *club*, *car*, *bottle*, and *party*, reflecting a materialistic and nightlife-oriented context. These patterns indicate that word embeddings differentiate distinct semantic domains within popular music lyrics and reveal latent structures of meaning that are not captured by frequency-based approaches, complementing earlier thematic and sentiment analyses.
+
+### Topic Modeling Across Historical Eras (LDA)
+
+To further explore how lyrical themes emerge organically from the data, this section applies topic modeling using latent Dirichlet allocation (LDA). Unlike dictionary-based approaches, LDA identifies clusters of co-occurring words without predefined categories, allowing themes to surface directly from the structure of the lyrics themselves. This makes topic modeling particularly useful for examining how dominant lyrical ideas differ across historical periods. By running LDA separately across eras, the analysis captures changes in thematic composition over time while remaining grounded in the language of the songs.
+
+```{r}
+junk_words <- c(
+  # filler / conversational lyric tokens
+  "im","dont","yeah","ya","aint","uh","huh","oh","ah","umm","em",
+  "la","na","da","ooh","woah","hey","yo","yea",
+  
+  # contractions / fragments
+  "hes","shes","ive","youre","theyre","were","wasnt","isnt",
+  
+  # structural lyric markers
+  "chorus","verse","intro","outro","bridge","repeat",
+  
+  # metadata / recording artifacts
+  "feat","ft","remix","live","version",
+  
+  # low-information proper names sometimes appearing in lyrics
+  "stephen","lawrence","natalya","malachy","bloom","bond"
+)
+
+tokens_lda <- tokens_nostop |>
+  filter(!word %in% junk_words) |>
+  filter(!str_detect(word, "^[0-9]+$")) |>
+  filter(str_length(word) > 2)
+```
+
+```{r}
+data <- data |>
+  mutate(era = case_when(
+    year >= 1950 & year <= 1979 ~ "1950s–1970s",
+    year >= 1980 & year <= 1999 ~ "1980s–1990s",
+    year >= 2000               ~ "2000s–Present"
+  ))
+data |> count(era)
+```
+
+```{r}
+tokens_lda <- tokens_nostop |>
+  filter(!word %in% junk_words) |>
+  filter(str_detect(word, "^[a-z]+$")) |>
+  filter(str_length(word) > 2)
+```
+
+```{r}
+song_text_era <- tokens_lda |>
+  group_by(era, song) |>
+  summarise(text = paste(word, collapse = " "), .groups = "drop")
+```
+
+```{r}
+run_lda_for_era <- function(df, k = 5) {
+  dtm <- df |>
+    unnest_tokens(word, text) |>
+    count(song, word) |>
+    cast_dtm(song, word, n)
+
+  lda <- LDA(dtm, k = k, control = list(seed = 123))
+
+  tidy(lda, matrix = "beta") |>
+    group_by(topic) |>
+    slice_max(beta, n = 10) |>
+    arrange(topic, -beta)
+}
+
+```
+
+```{r}
+library(topicmodels)
+
+lda_results <- song_text_era |>
+  group_by(era) |>
+  group_modify(~ run_lda_for_era(.x, k = 5))
+lda_results
+```
+
+```{r}
+dominant_topics <- lda_results |>
+  group_by(era, topic) |>
+  summarise(mean_beta = mean(beta), .groups = "drop") |>
+  group_by(era) |>
+  slice_max(mean_beta, n = 1) |>
+  select(era, topic)
+secondary_topics <- lda_results |>
+  anti_join(dominant_topics, by = c("era", "topic")) |>
+  group_by(era, topic) |>
+  summarise(mean_beta = mean(beta), .groups = "drop") |>
+  group_by(era) |>
+  slice_max(mean_beta, n = 1) |>
+  ungroup()
+lda_secondary_terms <- lda_results |>
+  semi_join(secondary_topics, by = c("era", "topic")) |>
+  group_by(era) |>
+  slice_max(beta, n = 8) |>
+  ungroup()
+
+```
+
+```{r}
+library(tidytext)
+lda_secondary_terms |>
+  mutate(term = reorder_within(term, beta, era)) |>
+  ggplot(aes(beta, term)) +
+  geom_col(fill = "#E34A33") +
+  facet_wrap(~ era, scales = "free_y") +
+  scale_y_reordered() +
+  labs(
+    title = "Secondary Lyrical Topics Across Historical Eras",
+    subtitle = "Dominant romance-related topic removed",
+    x = "Topic Importance",
+    y = NULL
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+After estimating LDA models separately for grouped historical eras and removing the dominant romance-related topic, the remaining topics reveal clear shifts in lyrical focus over time. In the **1950s–1970s**, the most prominent terms center on family and domestic life, including *mother*, *dad*, *home*, *bed*, and *tells*. This suggests that early popular music in the corpus places greater emphasis on familial relationships, household spaces, and intimate, everyday narratives.
+
+In contrast, the **1980s–1990s** era shows a transition toward themes associated with youth culture, nightlife, and social activity. High-ranking terms such as *night*, *party*, *rock*, *beat*, and *boys* indicate a shift away from domestic settings toward collective, energetic, and performance-oriented experiences.
+
+The **2000s–present** era displays a further thematic shift toward industry, production, and contemporary music culture. Terms such as *recorded*, *studios*, *spotify*, *nyc*, and *low* reflect increased attention to the mechanisms of music creation, distribution, and urban cultural spaces. Compared to earlier eras, these topics suggest a more self-referential lyrical style, in which songs increasingly reference the music industry itself and modern lifestyle contexts.
+
+Overall, this era-based topic modeling analysis demonstrates that, beyond the consistently dominant theme of romance, secondary lyrical topics evolve substantially over time. Early decades emphasize family and home life, middle decades highlight nightlife and social energy, and recent decades foreground production, platforms, and industry-related language. These patterns support the broader conclusion that popular music lyrics shift in both content and cultural orientation across historical periods.
+
+## Discussion
+
+This study examined how the thematic content, emotional tone, and lexical structure of popular music lyrics have evolved across decades. By combining dictionary-based thematic analysis, sentiment analysis, lexical methods, and unsupervised semantic models, the analysis provides a multidimensional view of lyrical change over time. Taken together, the results offer consistent evidence of a shift in lyrical focus from narrative and reflective themes in earlier decades toward more socially embedded and experiential forms of expression in more recent music.
+
+The thematic analysis revealed clear temporal patterns. Nostalgia and melancholy were more prominent in earlier periods, while social commentary increased over time, particularly in later decades. Although empowerment was expected to rise steadily, the observed decline challenges a common assumption about contemporary music and highlights the value of empirical analysis over intuition. These findings suggest that emotional complexity in popular music does not follow a simple linear trajectory, but instead reflects changing cultural and social contexts.
+
+Sentiment analysis complemented these results by capturing broader emotional tone. While overall sentiment varied across decades, changes in emotional valence were more nuanced than a simple shift toward positivity or negativity. This indicates that shifts in lyrical meaning are not solely driven by emotional tone, but also by how emotions are framed and embedded within broader narratives and social references.
+
+Lexical analyses further illustrated how language use has evolved. Word clouds and bigram patterns highlighted recurring relational language across all periods, while TF–IDF revealed decade-specific vocabulary tied to cultural, technological, and genre-based changes. The increasing presence of contemporary references in later decades reflects the growing influence of digital culture and lifestyle-oriented expression in popular music.
+
+Finally, word embeddings and topic modeling reinforced these patterns at a structural level. Unsupervised models recovered thematic shifts consistent with the dictionary-based analyses, lending robustness to the overall findings. The convergence of results across multiple methods strengthens the conclusion that lyrical evolution in popular music reflects broader transformations in cultural expression rather than artifacts of any single analytical approach.
+
+## Limitations
+
+Several limitations should be considered when interpreting the findings of this study. First, the lyric datasets used are limited to available sources and may not fully represent all genres, regions, or artists within each decade. As a result, observed trends may reflect dominant styles in popular music rather than the full diversity of lyrical expression.
+
+Second, dictionary-based thematic analysis relies on predefined word lists, which introduces a degree of subjectivity in how themes such as nostalgia or empowerment are operationalized. Although care was taken to construct meaningful and interpretable dictionaries, some thematic nuance may not be fully captured. Similarly, sentiment analysis based on lexicons may oversimplify emotional expression by assigning fixed valence to words that can vary in meaning depending on context.
+
+Finally, unsupervised models such as word embeddings and topic modeling require interpretive judgment when labeling or summarizing results. While these methods reveal latent structure in the data, topics and semantic relationships are not directly observable and may vary depending on modeling choices. Despite these limitations, the use of multiple complementary methods helps mitigate the impact of any single analytical constraint.
+
+## Conclusion
+
+This study analyzed changes in popular music lyrics across decades using thematic, sentiment, lexical, and semantic text analysis methods. Together, these approaches reveal clear shifts in how lyrics express meaning, emotion, and social context over time.
+
+While core relational themes persist, the findings suggest a gradual movement away from narrative-driven and reflective lyricism toward more experiential and socially embedded forms of expression in later decades. The consistency of these patterns across multiple analytical methods strengthens the conclusion that lyrical evolution in popular music reflects broader cultural change.
+
+Overall, this project demonstrates how combining interpretable and model-based text analysis techniques can offer valuable insight into cultural trends. Future work could expand this analysis to additional genres or languages to further explore the relationship between music, language, and society.
+
+## Bibliography
+
+Blakely, B. (n.d.). *Top 100 songs & lyrics by year 1959–2023 (USA)* \[Data set\]. Kaggle.
+
+Shah, D. (n.d.). *Song lyrics dataset* \[Data set\]. Kaggle.
+
+Shah, M. A., Khan, A., & Raza, S. M. (2023). Sentiment analysis of song lyrics using natural language processing techniques. *Journal of Engineering Sciences*, 10(2), 45–56.
+
+Fell, M., Sporleder, C., & Weyde, T. (2014). *Lyrics-based analysis and classification of music.* In Proceedings of the 52nd Annual Meeting of the Association for Computational Linguistics (ACL).
+
+Napier, K., & Shamir, L. (2018). Quantitative sentiment analysis of lyrics in popular music. *Journal of Popular Music Studies, 30*(4), 161–185.
+
+Parada-Cabaleiro, E. (2024). Song lyrics have become simpler and more repetitive over time. *PMC Journal of Cultural Analytics.*
+
+Martins, M., et al. (2025)**.** Societal crises disrupt long-term increases in stress-related language and sentiment in popular music lyrics. *Scientific Reports.*
